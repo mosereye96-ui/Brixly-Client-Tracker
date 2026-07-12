@@ -198,8 +198,8 @@ let chartInstance = null;
 
 async function loadData() {
   try {
-    const result = await window.storage.get('brixly_clients', false);
-    clients = result ? JSON.parse(result.value) : [];
+    const raw = localStorage.getItem('brixly_clients');
+    clients = raw ? JSON.parse(raw) : [];
   } catch (e) {
     clients = [];
   }
@@ -208,7 +208,7 @@ async function loadData() {
 
 async function saveData() {
   try {
-    await window.storage.set('brixly_clients', JSON.stringify(clients), false);
+    localStorage.setItem('brixly_clients', JSON.stringify(clients));
   } catch (e) {
     console.error('Save failed', e);
   }
