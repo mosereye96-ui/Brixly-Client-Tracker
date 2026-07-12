@@ -107,9 +107,25 @@
 
 <div class="top-row" id="statsRow"></div>
 
-<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+<div class="detail-panel" style="margin-bottom:24px;">
+  <div style="display:flex; justify-content:space-between; align-items:center;">
+    <h2 style="font-size:16px; font-family:Georgia,serif;">MRR growth</h2>
+  </div>
+  <div class="chart-wrap" style="height:180px;">
+    <canvas id="mrrChart" role="img" aria-label="Line chart showing monthly recurring revenue growth over time"></canvas>
+  </div>
+</div>
+
+<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; gap:12px; flex-wrap:wrap;">
   <h2 style="font-size:16px;">Clients</h2>
-  <button class="btn" onclick="openAddClientModal()">+ Add client</button>
+  <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+    <input type="text" id="clientSearch" placeholder="Search clients..." oninput="handleSearch()"
+      style="background:var(--surface2); border:1px solid var(--border); color:var(--ink); padding:8px 10px; border-radius:6px; font-size:13px;">
+    <button class="btn secondary small" onclick="exportData()">Backup</button>
+    <button class="btn secondary small" onclick="document.getElementById('importFile').click()">Restore</button>
+    <input type="file" id="importFile" accept="application/json" style="display:none;" onchange="importData(event)">
+    <button class="btn" onclick="openAddClientModal()">+ Add client</button>
+  </div>
 </div>
 
 <div class="client-list" id="clientList"></div>
@@ -120,7 +136,7 @@
 <div class="modal-overlay" id="addModal">
   <div class="modal">
     <span class="close-x" onclick="closeModal('addModal')">&times;</span>
-    <h3>Add new client</h3>
+    <h3 id="clientModalTitle">Add new client</h3>
     <div class="form-group" style="margin-bottom:12px;">
       <label>Business name</label>
       <input type="text" id="newBizName" placeholder="Maria's Salon">
@@ -149,7 +165,7 @@
       <label>Short.io link slug</label>
       <input type="text" id="newSlug" placeholder="mariasalon">
     </div>
-    <button class="btn" style="width:100%;" onclick="addClient()">Add client</button>
+    <button class="btn" id="clientModalBtn" style="width:100%;" onclick="addClient()">Add client</button>
   </div>
 </div>
 
@@ -195,6 +211,9 @@
 let clients = [];
 let selectedClientId = null;
 let chartInstance = null;
+let mrrChartInstance = null;
+let editingClientId = null;
+let searchQuery = '';
 
 async function loadData() {
   try {
@@ -216,24 +235,112 @@ async function saveData() {
 
 function uid() { return 'c_' + Date.now() + '_' + Math.floor(Math.random()*1000); }
 
+function exportData() {
+  const blob = new Blob([JSON.stringify(clients, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const stamp = new Date().toISOString().split('T')[0];
+  a.href = url;
+  a.download = `brixly-clients-backup-${stamp}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+function importData(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = async (e) => {
+    try {
+      const imported = JSON.parse(e.target.result);
+      if (!Array.isArray(imported)) throw new Error('Invalid file format');
+      const doMerge = clients.length > 0 && confirm(
+        'You already have clients saved. Click OK to MERGE the backup with existing clients, or Cancel to REPLACE existing clients with the backup.'
+      );
+      if (doMerge) {
+        const existingIds = new Set(clients.map(c => c.id));
+        imported.forEach(c => { if (!existingIds.has(c.id)) clients.push(c); });
+      } else {
+        clients = imported;
+      }
+      await saveData();
+      render();
+      if (selectedClientId && !clients.find(c => c.id === selectedClientId)) {
+        selectedClientId = null;
+        document.getElementById('detailPanel').innerHTML = '';
+      }
+      alert('Backup restored successfully.');
+    } catch (err) {
+      alert('Could not read that file. Make sure it\'s a Brixly backup JSON file.');
+    }
+    event.target.value = '';
+  };
+  reader.readAsText(file);
+}
+
 function openModal(id) { document.getElementById(id).classList.add('open'); }
 function closeModal(id) { document.getElementById(id).classList.remove('open'); }
-function openAddClientModal() { openModal('addModal'); }
+
+function openAddClientModal() {
+  editingClientId = null;
+  document.getElementById('clientModalTitle').textContent = 'Add new client';
+  document.getElementById('clientModalBtn').textContent = 'Add client';
+  document.getElementById('newBizName').value = '';
+  document.getElementById('newBizType').value = '';
+  document.getElementById('newOnboardDate').value = '';
+  document.getElementById('newBaselineReviews').value = '';
+  document.getElementById('newMonthlyRate').value = '';
+  document.getElementById('newSlug').value = '';
+  openModal('addModal');
+}
+
+function openEditClientModal(clientId, event) {
+  if (event) event.stopPropagation();
+  const client = clients.find(c => c.id === clientId);
+  if (!client) return;
+  editingClientId = clientId;
+  document.getElementById('clientModalTitle').textContent = 'Edit client';
+  document.getElementById('clientModalBtn').textContent = 'Save changes';
+  document.getElementById('newBizName').value = client.name;
+  document.getElementById('newBizType').value = client.type;
+  document.getElementById('newOnboardDate').value = client.onboardDate;
+  document.getElementById('newBaselineReviews').value = client.baselineReviews;
+  document.getElementById('newMonthlyRate').value = client.monthlyRate;
+  document.getElementById('newSlug').value = client.slug;
+  openModal('addModal');
+}
 
 async function addClient() {
   const name = document.getElementById('newBizName').value.trim();
   if (!name) return;
-  const client = {
-    id: uid(),
-    name: name,
-    type: document.getElementById('newBizType').value.trim() || 'Business',
-    onboardDate: document.getElementById('newOnboardDate').value || new Date().toISOString().split('T')[0],
-    baselineReviews: parseInt(document.getElementById('newBaselineReviews').value) || 0,
-    monthlyRate: parseInt(document.getElementById('newMonthlyRate').value) || 149,
-    slug: document.getElementById('newSlug').value.trim(),
-    checkins: []
-  };
-  clients.push(client);
+
+  if (editingClientId) {
+    const client = clients.find(c => c.id === editingClientId);
+    if (client) {
+      client.name = name;
+      client.type = document.getElementById('newBizType').value.trim() || 'Business';
+      client.onboardDate = document.getElementById('newOnboardDate').value || client.onboardDate;
+      client.baselineReviews = parseInt(document.getElementById('newBaselineReviews').value) || 0;
+      client.monthlyRate = parseInt(document.getElementById('newMonthlyRate').value) || 149;
+      client.slug = document.getElementById('newSlug').value.trim();
+    }
+    editingClientId = null;
+  } else {
+    const client = {
+      id: uid(),
+      name: name,
+      type: document.getElementById('newBizType').value.trim() || 'Business',
+      onboardDate: document.getElementById('newOnboardDate').value || new Date().toISOString().split('T')[0],
+      baselineReviews: parseInt(document.getElementById('newBaselineReviews').value) || 0,
+      monthlyRate: parseInt(document.getElementById('newMonthlyRate').value) || 149,
+      slug: document.getElementById('newSlug').value.trim(),
+      checkins: []
+    };
+    clients.push(client);
+  }
+
   await saveData();
   closeModal('addModal');
   document.getElementById('newBizName').value = '';
@@ -243,6 +350,7 @@ async function addClient() {
   document.getElementById('newMonthlyRate').value = '';
   document.getElementById('newSlug').value = '';
   render();
+  if (selectedClientId) showDetail(selectedClientId);
 }
 
 function openCheckinModal(clientId) {
@@ -288,6 +396,19 @@ function latestCheckin(client) {
   return client.checkins.length ? client.checkins[client.checkins.length - 1] : null;
 }
 
+function daysSinceLastActivity(client) {
+  const last = latestCheckin(client);
+  const refDate = last ? last.date : client.onboardDate;
+  if (!refDate) return null;
+  const diffMs = new Date().setHours(0,0,0,0) - new Date(refDate + 'T00:00:00').getTime();
+  return Math.floor(diffMs / (1000 * 60 * 60 * 24));
+}
+
+function isOverdueForCheckin(client) {
+  const days = daysSinceLastActivity(client);
+  return days !== null && days >= 30;
+}
+
 function currentReviews(client) {
   const last = latestCheckin(client);
   return last ? last.reviews : client.baselineReviews;
@@ -327,16 +448,30 @@ function renderStats() {
   `;
 }
 
+function handleSearch() {
+  searchQuery = document.getElementById('clientSearch').value.trim().toLowerCase();
+  renderClientList();
+}
+
 function renderClientList() {
   const listEl = document.getElementById('clientList');
+  const filtered = searchQuery
+    ? clients.filter(c => c.name.toLowerCase().includes(searchQuery) || c.type.toLowerCase().includes(searchQuery))
+    : clients;
+
   if (clients.length === 0) {
     listEl.innerHTML = `<div class="empty-state">No clients yet. Add your first one to start tracking progress.</div>`;
     return;
   }
-  listEl.innerHTML = clients.map(c => {
+  if (filtered.length === 0) {
+    listEl.innerHTML = `<div class="empty-state">No clients match "${escapeHtml(searchQuery)}".</div>`;
+    return;
+  }
+  listEl.innerHTML = filtered.map(c => {
     const last = latestCheckin(c);
     const growth = reviewGrowth(c);
     const paymentBadge = last ? `<span class="badge ${last.payment}">${last.payment}</span>` : `<span class="badge due">no check-in yet</span>`;
+    const overdueBadge = isOverdueForCheckin(c) ? `<span class="badge overdue">check-in overdue</span>` : '';
     return `
       <div class="client-card ${c.id === selectedClientId ? 'selected' : ''}" onclick="showDetail('${c.id}')">
         <div class="client-head">
@@ -345,7 +480,9 @@ function renderClientList() {
             <div class="client-meta">${escapeHtml(c.type)} &middot; onboarded ${formatDate(c.onboardDate)}</div>
           </div>
           <div style="display:flex; align-items:center; gap:10px;">
+            ${overdueBadge}
             ${paymentBadge}
+            <button class="btn secondary small" onclick="openEditClientModal('${c.id}', event)">Edit</button>
             <button class="btn danger small" onclick="deleteClient('${c.id}', event)">Remove</button>
           </div>
         </div>
@@ -443,9 +580,71 @@ function renderChart(client) {
   });
 }
 
+function renderMrrChart() {
+  const ctx = document.getElementById('mrrChart');
+  if (!ctx) return;
+  if (mrrChartInstance) mrrChartInstance.destroy();
+
+  if (clients.length === 0) return;
+
+  const dated = clients
+    .filter(c => c.onboardDate)
+    .map(c => ({ date: c.onboardDate, rate: c.monthlyRate || 0 }))
+    .sort((a, b) => new Date(a.date) - new Date(b.date));
+
+  if (dated.length === 0) return;
+
+  // Build cumulative MRR at each month from first onboarding to current month
+  const start = new Date(dated[0].date + 'T00:00:00');
+  const now = new Date();
+  const months = [];
+  let cursor = new Date(start.getFullYear(), start.getMonth(), 1);
+  const end = new Date(now.getFullYear(), now.getMonth(), 1);
+  while (cursor <= end) {
+    months.push(new Date(cursor));
+    cursor = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1);
+  }
+
+  const labels = months.map(m => m.toLocaleDateString('en-US', { month: 'short', year: '2-digit' }));
+  const data = months.map(m => {
+    const cutoff = new Date(m.getFullYear(), m.getMonth() + 1, 1);
+    return dated.filter(d => new Date(d.date + 'T00:00:00') < cutoff).reduce((sum, d) => sum + d.rate, 0);
+  });
+
+  mrrChartInstance = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: labels,
+      datasets: [{
+        label: 'MRR',
+        data: data,
+        borderColor: '#52b788',
+        backgroundColor: 'rgba(82,183,136,0.1)',
+        fill: true,
+        tension: 0.3,
+        pointBackgroundColor: '#52b788',
+        pointRadius: 3
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: (ctx) => '$' + ctx.parsed.y } }
+      },
+      scales: {
+        x: { ticks: { color: '#888888' }, grid: { color: '#222222' } },
+        y: { ticks: { color: '#888888', callback: (v) => '$' + v }, grid: { color: '#222222' }, beginAtZero: true }
+      }
+    }
+  });
+}
+
 function render() {
   renderStats();
   renderClientList();
+  renderMrrChart();
 }
 
 loadData();
