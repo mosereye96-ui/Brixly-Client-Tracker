@@ -166,6 +166,33 @@
       <input type="text" id="newSlug" placeholder="mariasalon">
     </div>
     <div class="form-group" style="margin-bottom:16px;">
+      <label>Hardware given</label>
+      <div style="display:flex; flex-direction:column; gap:12px; margin-top:6px;">
+        <div class="form-row" style="align-items:flex-end;">
+          <div class="form-group" style="flex:0 0 auto; align-self:center; font-size:13px; min-width:120px;">NFC stands</div>
+          <div class="form-group">
+            <label>Qty given</label>
+            <input type="number" id="hwStandQty" placeholder="0" min="0">
+          </div>
+          <div class="form-group">
+            <label>Total charged ($)</label>
+            <input type="number" id="hwStandCharged" placeholder="0" min="0">
+          </div>
+        </div>
+        <div class="form-row" style="align-items:flex-end;">
+          <div class="form-group" style="flex:0 0 auto; align-self:center; font-size:13px; min-width:120px;">Badge reels</div>
+          <div class="form-group">
+            <label>Qty given</label>
+            <input type="number" id="hwReelQty" placeholder="0" min="0">
+          </div>
+          <div class="form-group">
+            <label>Total charged ($)</label>
+            <input type="number" id="hwReelCharged" placeholder="0" min="0">
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="form-group" style="margin-bottom:16px;">
       <label>Products given</label>
       <div id="productChecklist" style="display:flex; flex-direction:column; gap:8px; margin-top:6px;">
         <!-- populated by JS -->
@@ -248,8 +275,6 @@ function parseIntOrDefault(value, fallback) {
 }
 
 const PRODUCT_CATALOG = [
-  { id: 'nfc_stand', label: 'NFC countertop stand' },
-  { id: 'badge_reel', label: 'Retractable badge reel' },
   { id: 'gbp_opt', label: 'GBP optimization' },
   { id: 'ai_review_responses', label: 'AI-assisted review responses' },
   { id: 'photo_uploads', label: 'Monthly photo uploads' },
@@ -260,6 +285,29 @@ function getSelectedProducts() {
   return PRODUCT_CATALOG
     .map(p => p.id)
     .filter(id => document.getElementById('prod_' + id) && document.getElementById('prod_' + id).checked);
+}
+
+function getHardwareData() {
+  return {
+    nfc_stand: {
+      qty: parseIntOrDefault(document.getElementById('hwStandQty').value, 0),
+      charged: parseIntOrDefault(document.getElementById('hwStandCharged').value, 0)
+    },
+    badge_reel: {
+      qty: parseIntOrDefault(document.getElementById('hwReelQty').value, 0),
+      charged: parseIntOrDefault(document.getElementById('hwReelCharged').value, 0)
+    }
+  };
+}
+
+function setHardwareFields(hardware) {
+  const hw = hardware || {};
+  const stand = hw.nfc_stand || { qty: 0, charged: 0 };
+  const reel = hw.badge_reel || { qty: 0, charged: 0 };
+  document.getElementById('hwStandQty').value = stand.qty || '';
+  document.getElementById('hwStandCharged').value = stand.charged || '';
+  document.getElementById('hwReelQty').value = reel.qty || '';
+  document.getElementById('hwReelCharged').value = reel.charged || '';
 }
 
 function exportData() {
@@ -331,6 +379,7 @@ function openAddClientModal() {
   document.getElementById('newBaselineReviews').value = '';
   document.getElementById('newMonthlyRate').value = '';
   document.getElementById('newSlug').value = '';
+  setHardwareFields(null);
   renderProductChecklist([]);
   openModal('addModal');
 }
@@ -348,6 +397,7 @@ function openEditClientModal(clientId, event) {
   document.getElementById('newBaselineReviews').value = client.baselineReviews;
   document.getElementById('newMonthlyRate').value = client.monthlyRate;
   document.getElementById('newSlug').value = client.slug;
+  setHardwareFields(client.hardware);
   renderProductChecklist(client.products || []);
   openModal('addModal');
 }
@@ -366,6 +416,7 @@ async function addClient() {
       client.monthlyRate = parseIntOrDefault(document.getElementById('newMonthlyRate').value, 149);
       client.slug = document.getElementById('newSlug').value.trim();
       client.products = getSelectedProducts();
+      client.hardware = getHardwareData();
     }
     editingClientId = null;
   } else {
@@ -378,6 +429,7 @@ async function addClient() {
       monthlyRate: parseIntOrDefault(document.getElementById('newMonthlyRate').value, 149),
       slug: document.getElementById('newSlug').value.trim(),
       products: getSelectedProducts(),
+      hardware: getHardwareData(),
       checkins: []
     };
     clients.push(client);
@@ -550,6 +602,23 @@ function formatDate(dateStr) {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
+function renderHardwareSummary(hardware) {
+  const hw = hardware || {};
+  const stand = hw.nfc_stand || { qty: 0, charged: 0 };
+  const reel = hw.badge_reel || { qty: 0, charged: 0 };
+  if (!stand.qty && !reel.qty) {
+    return '<p style="color:var(--muted); font-size:13px;">No hardware logged yet &mdash; click Edit to add it.</p>';
+  }
+  const parts = [];
+  if (stand.qty) {
+    parts.push(`<div><b>${stand.qty}</b> NFC stand${stand.qty !== 1 ? 's' : ''} &middot; $${stand.charged} charged</div>`);
+  }
+  if (reel.qty) {
+    parts.push(`<div><b>${reel.qty}</b> badge reel${reel.qty !== 1 ? 's' : ''} &middot; $${reel.charged} charged</div>`);
+  }
+  return parts.join('');
+}
+
 function showDetail(clientId) {
   selectedClientId = clientId;
   renderClientList();
@@ -569,6 +638,10 @@ function showDetail(clientId) {
       </p>
       <div class="chart-wrap">
         <canvas id="growthChart" role="img" aria-label="Line chart showing review count growth over time for ${escapeHtml(client.name)}"></canvas>
+      </div>
+      <h3 style="font-size:14px; margin-top:20px; margin-bottom:8px; color:var(--muted);">Hardware given</h3>
+      <div style="display:flex; flex-wrap:wrap; gap:16px; margin-bottom:8px; font-size:13px;">
+        ${renderHardwareSummary(client.hardware)}
       </div>
       <h3 style="font-size:14px; margin-top:20px; margin-bottom:8px; color:var(--muted);">Products given</h3>
       <div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:8px;">
